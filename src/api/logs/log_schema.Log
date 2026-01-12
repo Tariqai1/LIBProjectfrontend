@@ -1,0 +1,42 @@
+# file: schemas/log_schema.py
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
+
+# --- Basic User Info for Log Response ---
+# Taki frontend ko alag se user fetch na karna pade
+class UserInLog(BaseModel):
+    id: int
+    username: str
+
+    class Config:
+        from_attributes = True # Pydantic V2 ORM Mode
+
+# --- Log Schema (for API Response) ---
+class Log(BaseModel):
+    id: int
+    action_type: str = Field(..., examples=["BOOK_CREATED", "USER_LOGIN_SUCCESS"])
+    description: str = Field(..., examples=["Book 'New Title' created...", "User 'admin' logged in."])
+    
+    # Assuming your Log model has a 'timestamp' or 'created_at' field
+    # Adjust the field name below if it's different in models/log_model.py
+    timestamp: datetime 
+    
+    target_type: Optional[str] = Field(None, examples=["Book", "User"])
+    target_id: Optional[int] = Field(None, examples=[10, 5])
+    
+    # --- Nested User Information ---
+    # Assuming your Log model has a relationship named 'action_by' linking to the User model
+    # Adjust 'action_by' if the relationship name is different in models/log_model.py
+    action_by: Optional[UserInLog] = None # Include basic user info
+
+    class Config:
+        from_attributes = True # Pydantic V2 ORM Mode
+
+# --- Optional: Schema for Creating Logs (if needed, though usually done internally) ---
+# class LogCreate(BaseModel):
+#     action_type: str
+#     description: str
+#     action_by_id: Optional[int] = None
+#     target_type: Optional[str] = None
+#     target_id: Optional[int] = None
