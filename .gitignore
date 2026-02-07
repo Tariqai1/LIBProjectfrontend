@@ -11,6 +11,8 @@ env/
 
 # Environment variables
 .env
+library-frontend/.env
+library-frontend/.env.production
 
 # Node
 node_modules/
@@ -18,18 +20,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Frontend env
-library-frontend/.env
-library-frontend/.env.production
-
-# Backend static files
+# Backend static (uploads should NOT be pushed)
 library_backend/static/uploads/
 library_backend/static/covers/
 library_backend/static/pdfs/
 library_backend/static/donation/
 library_backend/static/images/
 
-# IDEs
+# IDE / Editor
 .vscode/
 .idea/
 *.swp
@@ -38,5 +36,10 @@ library_backend/static/images/
 .DS_Store
 Thumbs.db
 
-# Executables
+# Build / misc
 *.exe
+# Frontend build
+library-frontend/dist/
+
+# Logs
+library-frontend/src/api/logs/
