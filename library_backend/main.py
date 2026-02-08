@@ -19,7 +19,7 @@ from sqlalchemy import text
 # =====================================================
 # 1. SETUP LOGGING & ENV
 # =====================================================
-# Configure Logging (Better than print statements)
+# Configure Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -28,13 +28,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Load Environment Variables
+# Note: Since main.py is inside library_backend, .env is likely one level up
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR.parent / ".env"
 load_dotenv(ENV_PATH)
 
 # =====================================================
-# 2. DATABASE IMPORTS
+# 2. DATABASE IMPORTS (FIXED)
 # =====================================================
+# ✅ Maine yahan se 'library_backend.' hata diya hai
 from database import engine, Base, get_db
 from models import (
     user_model,
@@ -43,7 +45,7 @@ from models import (
 )
 
 # =====================================================
-# 3. CONTROLLER IMPORTS
+# 3. CONTROLLER IMPORTS (FIXED)
 # =====================================================
 from controllers import (
     auth_controller, google_auth_controller, user_controller, role_controller,
@@ -55,7 +57,7 @@ from controllers import (
 )
 
 # =====================================================
-# 4. LIFESPAN MANAGER (Modern Startup/Shutdown)
+# 4. LIFESPAN MANAGER (Modern Startup)
 # =====================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -76,7 +78,7 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Database connected & tables verified.")
     except Exception as e:
         logger.critical(f"❌ DATABASE CRITICAL ERROR: {str(e)}")
-        # We don't exit here to allow debugging, but the app is likely unstable
+        # We don't exit here to allow debugging logs to show up in Render
     
     yield  # Application runs here
     
@@ -87,21 +89,21 @@ async def lifespan(app: FastAPI):
 # =====================================================
 app = FastAPI(
     title="BookNest Library API",
-    version="6.2.0",
-    description="Full-featured Library API (Local + Supabase Ready)",
+    version="6.2.1",
+    description="Full-featured Library API",
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan  # Injecting lifespan logic
+    lifespan=lifespan
 )
 
 # =====================================================
 # 6. MIDDLEWARE CONFIGURATION
 # =====================================================
 
-# A. Trusted Host (Security Header)
+# A. Trusted Host
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=["*"] # Change to specific domain in production
+    allowed_hosts=["*"] 
 )
 
 # B. CORS Setup
@@ -146,7 +148,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     try:
         for error in exc.errors():
             input_repr = error.get("input")
-            # Safe input representation
             if isinstance(input_repr, bytes):
                 input_repr = f"<bytes, len={len(input_repr)}>"
             elif input_repr and not isinstance(input_repr, (str, int, float, bool, list, dict)):
@@ -231,10 +232,7 @@ def health_check():
 
 @app.get("/api/debug/nuke-issues", tags=["Debug"])
 def nuke_issues(db: Session = Depends(get_db)):
-    """
-    ⚠️ DANGER: Deletes all issued books. 
-    Ideally protect this with an Admin dependency.
-    """
+    """Deletes all issued books (Emergency cleanup)"""
     try:
         from models.library_management_models import IssuedBook
         deleted_count = db.query(IssuedBook).delete()
@@ -243,16 +241,11 @@ def nuke_issues(db: Session = Depends(get_db)):
         return {"message": f"Successfully deleted {deleted_count} corrupt issue records."}
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to nuke issues: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/api/setup-permissions", tags=["System Setup"])
 def setup_default_permissions(db: Session = Depends(get_db)):
-    """
-    Idempotent Setup: Creates default permissions if missing 
-    and links them to Admin/SuperAdmin roles.
-    """
-    # Define Permissions Structure
+    """Idempotent Setup: Creates default permissions if missing."""
     permission_groups = {
         "User Management": ["USER_VIEW", "USER_MANAGE"],
         "Library Management": ["BOOK_VIEW", "BOOK_MANAGE", "BOOK_ISSUE"],
@@ -261,50 +254,37 @@ def setup_default_permissions(db: Session = Depends(get_db)):
         "System Audit": ["LOGS_VIEW"]
     }
 
-    # Flatten and prepare descriptions
-    permissions_to_sync = []
-    for group, names in permission_groups.items():
-        for name in names:
-            desc = f"{group}: {name.replace('_', ' ').title()}"
-            permissions_to_sync.append({"name": name, "description": desc})
-
     added_names = []
     all_db_permissions = []
 
     try:
-        # 1. Ensure Permissions Exist
-        for p_data in permissions_to_sync:
-            db_perm = db.query(permission_model.Permission).filter_by(name=p_data["name"]).first()
-            if not db_perm:
-                db_perm = permission_model.Permission(name=p_data["name"], description=p_data["description"])
-                db.add(db_perm)
-                added_names.append(p_data["name"])
-            all_db_permissions.append(db_perm)
+        for group, names in permission_groups.items():
+            for name in names:
+                desc = f"{group}: {name.replace('_', ' ').title()}"
+                db_perm = db.query(permission_model.Permission).filter_by(name=name).first()
+                if not db_perm:
+                    db_perm = permission_model.Permission(name=name, description=desc)
+                    db.add(db_perm)
+                    added_names.append(name)
+                all_db_permissions.append(db_perm)
         
-        db.flush() # Sync ID creation
+        db.flush()
 
-        # 2. Assign to Admin Role
         admin_roles = db.query(user_model.Role).filter(
             user_model.Role.name.in_(["Admin", "SuperAdmin", "Administrator"])
         ).all()
 
-        role_msg = "No Admin role found."
         if admin_roles:
             for role in admin_roles:
-                # Merge existing perms with new ones to prevent overwriting custom assignments
                 current_perms = set(role.permissions)
                 new_perms = set(all_db_permissions)
                 role.permissions = list(current_perms.union(new_perms))
-            role_msg = f"Updated permissions for roles: {[r.name for r in admin_roles]}"
 
         db.commit()
         return {
             "status": "Success",
-            "new_permissions_added": len(added_names),
-            "permissions_list": added_names,
-            "role_update": role_msg
+            "new_permissions_added": len(added_names)
         }
-
     except Exception as e:
         db.rollback()
         logger.error(f"Setup Permissions Failed: {e}")
@@ -316,6 +296,4 @@ def setup_default_permissions(db: Session = Depends(get_db)):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     host = "0.0.0.0"
-    
-    logger.info(f"🚀 Server starting on http://{host}:{port}")
     uvicorn.run("main:app", host=host, port=port, reload=True)
